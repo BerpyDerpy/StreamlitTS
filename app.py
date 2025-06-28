@@ -15,7 +15,6 @@ def get_token():
 
 
 def search_songs(title, token):
-
     base_url = "https://api.genius.com"
     headers = {"Authorization": f"Bearer {token}"}
     params = {"q": title}
@@ -33,8 +32,19 @@ def search_songs(title, token):
 
 
 def scrape_lyrics(song_url):
+    headers = {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
+    }
+    try:
+        page = requests.get(song_url, headers=headers)
+        page.raise_for_status()  # Raise an HTTPError for bad responses (4xx or 5xx)
+    except requests.exceptions.HTTPError as e:
+        st.error(f"HTTP Error fetching lyrics: {e}. Status code: {page.status_code}")  # Show status code
+        return ""
+    except requests.exceptions.RequestException as e:
+        st.error(f"Error connecting to Genius website: {e}")
+        return ""
 
-    page = requests.get(song_url)
     html = BeautifulSoup(page.text, "html.parser")
 
     lyrics_div = html.find("div", class_="Lyrics__Container")
@@ -44,14 +54,24 @@ def scrape_lyrics(song_url):
         lyrics_divs = html.find_all("div", attrs={"data-lyrics-container": "true"})
         lyrics = "\n".join(div.get_text(separator="\n") for div in lyrics_divs)
         if not lyrics:
+            # Another common pattern for lyrics sections
             lyrics_divs = html.select('div[class^="Lyrics__Root"]')
             lyrics = "\n".join(div.get_text(separator="\n") for div in lyrics_divs)
+
+    # Add a debug print/log to see what lyrics are being scraped in deployment
+    if not lyrics.strip():  # Check if it's truly empty after stripping
+        st.warning(
+            f"No lyrics scraped for {song_url}. HTML content snippet: {page.text[:500]}")  # Print first 500 chars of HTML
 
     return lyrics.strip()
 
 
-def generate_wordcloud(text):
 
+
+
+def generate_wordcloud(text):
+    if not text:
+        return None  # Return None or an empty image if text is empty
     wc = WordCloud(
         width=800,
         height=400,
@@ -84,6 +104,11 @@ def main():
         song_url = f"https://genius.com{song_path}"
 
         lyrics = scrape_lyrics(song_url)
+        if not lyrics:
+            st.error(
+                "Could not retrieve lyrics for the selected song. The website structure might have changed, or there might be an issue with the song page itself.")
+            # Do not attempt to generate word cloud if lyrics are empty
+            return
 
         st.subheader("Lyrics")
         st.text_area("", lyrics, height=300)
